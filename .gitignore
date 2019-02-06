@@ -7,3 +7,5 @@
 *.xcuserstate
 xcuserdata/
 xcshareddata/
+Project.xcconfig
+project.pbxproj
