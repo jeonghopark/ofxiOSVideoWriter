@@ -11,28 +11,21 @@
 #import <OpenGLES/ES2/glext.h>
 #import "VideoWriter.h"
 
-@interface VideoWriter() <AVCaptureAudioDataOutputSampleBufferDelegate> {
+@interface VideoWriter() {
     CMTime startTime;
     CMTime previousFrameTime;
     CMTime previousAudioTime;
-    CMTime firstAudioTimeStamp;
-    CMTime firstVideoTimestamp;
     BOOL bWriting;
     
     BOOL bUseTextureCache;
     BOOL bEnableTextureCache;
     BOOL bTextureCacheSupported;
-    BOOL bMicAudio;
     BOOL bFirstAudio;
     
     CVOpenGLESTextureCacheRef _textureCache;
     CVOpenGLESTextureRef _textureRef;
     CVPixelBufferRef _textureCachePixelBuffer;
     CMSampleBufferRef _firstAudioBuffer;
-    
-    // audio extras
-    dispatch_queue_t audioCaptureQueue;
-    NSDictionary *audioSettings;
 }
 @end
 
@@ -49,10 +42,6 @@
 @synthesize outputURL;
 @synthesize enableTextureCache;
 @synthesize expectsMediaDataInRealTime;
-
-@synthesize captureInputAudio;
-@synthesize captureOutputAudio;
-@synthesize captureSessionAudio;
 
 //---------------------------------------------------------------------------
 - (id)initWithFile:(NSString *)file andVideoSize:(CGSize)size {
@@ -83,16 +72,11 @@
         startTime = kCMTimeInvalid;
         previousFrameTime = kCMTimeInvalid;
         previousAudioTime = kCMTimeInvalid;
-        firstAudioTimeStamp = kCMTimeInvalid;
-        firstVideoTimestamp = kCMTimeInvalid;
         videoWriterQueue = dispatch_queue_create("ofxiOSVideoWriter.VideoWriterQueue", NULL);
-        audioCaptureQueue = dispatch_queue_create("AudioCaptureQueue", NULL);
         
         bUseTextureCache = NO;
         bEnableTextureCache = NO;
         bTextureCacheSupported = NO;
-        bMicAudio = YES;
-        bFirstAudio = NO;
         expectsMediaDataInRealTime = YES;
     }
     return self;
@@ -125,8 +109,6 @@
     
     startTime = kCMTimeZero;
     previousFrameTime = kCMTimeInvalid;
-    firstAudioTimeStamp = kCMTimeInvalid;
-    firstVideoTimestamp = kCMTimeInvalid;
     bFirstAudio = YES;
     if(_firstAudioBuffer) {
         CFRelease(_firstAudioBuffer);
@@ -146,44 +128,6 @@
             [self.delegate videoWriterError:error];
         }
         return;
-    }
-    
-    //--------------------------------------------------------------------------- setup mic capture session
-    if(bMicAudio) {
-        /*NSError * micError = nil;
-         AVCaptureDevice * captureDevice = [AVCaptureDevice defaultDeviceWithMediaType: AVMediaTypeAudio];
-         self.captureInputAudio = [AVCaptureDeviceInput deviceInputWithDevice:captureDevice error:&micError];
-         self.captureOutputAudio = [[[AVCaptureAudioDataOutput alloc] init] autorelease];
-         
-         self.captureSessionAudio = [[[AVCaptureSession alloc] init] autorelease];
-         self.captureSessionAudio.sessionPreset = AVCaptureSessionPresetLow;
-         [self.captureSessionAudio addInput:self.captureInputAudio];
-         [self.captureSessionAudio addOutput:self.captureOutputAudio];
-         
-         dispatch_queue_t queue = dispatch_queue_create("MyQueue", NULL);
-         [self.captureOutputAudio setSampleBufferDelegate:self queue:queue];
-         dispatch_release(queue);
-         
-         [self.captureSessionAudio startRunning];*/
-        
-        NSError *micError = nil;
-        AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
-        captureInputAudio = [AVCaptureDeviceInput deviceInputWithDevice:device error:&micError];
-        if (error) {
-            NSLog(@"%@", error);
-            return;
-        }
-        captureOutputAudio = [[AVCaptureAudioDataOutput alloc] init];
-        [captureOutputAudio setSampleBufferDelegate:self queue:audioCaptureQueue];
-        
-        captureSessionAudio = [[AVCaptureSession alloc] init];
-        captureSessionAudio.sessionPreset = AVCaptureSessionPresetMedium;
-        [captureSessionAudio addInput:captureInputAudio];
-        [captureSessionAudio addOutput:captureOutputAudio];
-        
-        audioSettings = [captureOutputAudio recommendedAudioSettingsForAssetWriterWithOutputFileType:AVFileTypeQuickTimeMovie];
-        
-        [self.captureSessionAudio startRunning];
     }
     
     //--------------------------------------------------------------------------- adding video input.
@@ -215,26 +159,26 @@
     }
     
     //--------------------------------------------------------------------------- adding audio input.
-    /*double preferredHardwareSampleRate = [[AVAudioSession sharedInstance] currentHardwareSampleRate];
-     
-     AudioChannelLayout channelLayout;
-     bzero(&channelLayout, sizeof(channelLayout));
-     channelLayout.mChannelLayoutTag = kAudioChannelLayoutTag_Mono;
-     
-     int numOfChannels = 1;
-     if(channelLayout.mChannelLayoutTag == kAudioChannelLayoutTag_Stereo) {
-     numOfChannels = 2;
-     }
-     
-     NSDictionary * audioSettings = nil;
-     
-     audioSettings = [NSDictionary dictionaryWithObjectsAndKeys:
-     [NSNumber numberWithInt:kAudioFormatMPEG4AAC], AVFormatIDKey,
-     [NSNumber numberWithInt:numOfChannels], AVNumberOfChannelsKey,
-     [NSNumber numberWithFloat:preferredHardwareSampleRate], AVSampleRateKey,
-     [NSData dataWithBytes:&channelLayout length:sizeof(channelLayout)], AVChannelLayoutKey,
-     [NSNumber numberWithInt:64000], AVEncoderBitRateKey,
-     nil];*/
+    double preferredHardwareSampleRate = [[AVAudioSession sharedInstance] currentHardwareSampleRate];
+    
+    AudioChannelLayout channelLayout;
+    bzero(&channelLayout, sizeof(channelLayout));
+    channelLayout.mChannelLayoutTag = kAudioChannelLayoutTag_Mono;
+    
+    int numOfChannels = 1;
+    if(channelLayout.mChannelLayoutTag == kAudioChannelLayoutTag_Stereo) {
+        numOfChannels = 2;
+    }
+    
+    NSDictionary * audioSettings = nil;
+    
+    audioSettings = [NSDictionary dictionaryWithObjectsAndKeys:
+                     [NSNumber numberWithInt:kAudioFormatMPEG4AAC], AVFormatIDKey,
+                     [NSNumber numberWithInt:numOfChannels], AVNumberOfChannelsKey,
+                     [NSNumber numberWithFloat:preferredHardwareSampleRate], AVSampleRateKey,
+                     [NSData dataWithBytes:&channelLayout length:sizeof(channelLayout)], AVChannelLayoutKey,
+                     [NSNumber numberWithInt:64000], AVEncoderBitRateKey,
+                     nil];
     
     self.assetWriterAudioInput = [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeAudio
                                                                     outputSettings:audioSettings];
@@ -245,10 +189,8 @@
     }
     
     //--------------------------------------------------------------------------- start writing!
-    // FIXED: moved this to addFrame (after a frame has been added)
-    //[self.assetWriter startWriting];
-    //[self.assetWriter startSessionAtSourceTime:startTime];
-    //[self.assetWriter startSessionAtSourceTime:firstAudioTimeStamp];
+    [self.assetWriter startWriting];
+    [self.assetWriter startSessionAtSourceTime:startTime];
     
     if(bEnableTextureCache) {
         [self initTextureCache];
@@ -256,7 +198,6 @@
 }
 
 - (void)finishRecording {
-    
     if(bWriting == NO) {
         return;
     }
@@ -267,22 +208,9 @@
         return;
     }
     
-    if(self.captureSessionAudio) {
-        NSLog(@"Stopping audio recording...");
-        [self.captureSessionAudio stopRunning];
-        /*[self.captureSessionAudio removeInput:self.captureInputAudio];
-         [self.captureSessionAudio removeOutput:self.captureOutputAudio];
-         self.captureSessionAudio = nil;
-         self.captureInputAudio = nil;
-         self.captureOutputAudio = nil;*/
-    }
-    
     bWriting = NO;
     dispatch_sync(videoWriterQueue, ^{
-        dispatch_sync(audioCaptureQueue, ^{
-            [self disposeAssetWriterAndWriteFile:YES];
-        });
-        
+        [self disposeAssetWriterAndWriteFile:YES];
     });
 }
 
@@ -297,30 +225,24 @@
     
     bWriting = NO;
     dispatch_sync(videoWriterQueue, ^{
-        dispatch_sync(audioCaptureQueue, ^{
-            [self disposeAssetWriterAndWriteFile:NO];
-        });
+        [self disposeAssetWriterAndWriteFile:NO];
     });
 }
 
 - (void) disposeAssetWriterAndWriteFile:(BOOL)writeFile {
-    
-    
     [self.assetWriterVideoInput markAsFinished];
     [self.assetWriterAudioInput markAsFinished];
     
     void (^releaseAssetWriter)(void) = ^{
-        
         self.assetWriterVideoInput = nil;
         self.assetWriterAudioInput = nil;
         self.assetWriter = nil;
         self.assetWriterInputPixelBufferAdaptor = nil;
         [self destroyTextureCache];
         
-        
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if(writeFile == YES) {
-                
+        if(writeFile == YES) {
+            
+            dispatch_async(dispatch_get_main_queue(), ^{
                 if([self.delegate respondsToSelector:@selector(videoWriterComplete:)]) {
                     [self.delegate videoWriterComplete:self.outputURL];
                 }
@@ -329,37 +251,24 @@
                     NSString * log = [NSString stringWithFormat:@"video saved! - %@", self.outputURL.description];
                     [self.delegate videoWriterLog:log];
                 }
-                
-            } else {
-                
+            });
+            
+        } else {
+            
+            dispatch_async(dispatch_get_main_queue(), ^{
                 if([self.delegate respondsToSelector:@selector(videoWriterCancelled)]) {
                     [self.delegate videoWriterCancelled];
                 }
-            }
-            
-            // cleanup captureSessionAudio in main qqueue
-            // FIXME: this is causing a crash?
-            if(self.captureSessionAudio) {
-                [self.captureSessionAudio removeInput:self.captureInputAudio];
-                [self.captureSessionAudio removeOutput:self.captureOutputAudio];
-                /*self.captureSessionAudio = nil;
-                 self.captureInputAudio = nil;
-                 self.captureOutputAudio = nil;*/
-            }
-            
-            NSLog(@"releaseAssetWriter %@", self.outputURL.path);
-        });
-        
+            });
+        }
     };
     
     if(writeFile) {
         [self.assetWriter finishWritingWithCompletionHandler:releaseAssetWriter];
-        
     } else {
         [self.assetWriter cancelWriting];
         releaseAssetWriter();
     }
-    
 }
 
 - (BOOL)isWriting {
@@ -377,19 +286,6 @@
        (CMTIME_COMPARE_INLINE(frameTime, ==, previousFrameTime)) ||
        (CMTIME_IS_INDEFINITE(frameTime))) {
         return NO;
-    }
-    
-    // need a video frame time to begin before writing
-    // must also have the first audio frame to start writing
-    if(CMTIME_IS_INVALID(firstVideoTimestamp) && !CMTIME_IS_INVALID(firstAudioTimeStamp)) {
-        firstVideoTimestamp = frameTime;
-        NSLog(@"first video timestamp: %f", CMTimeGetSeconds(firstVideoTimestamp));
-        
-        // start video writing when we have the first video frame + the first audio frame
-        [self.assetWriter startWriting];
-        CMTime startTime = CMTimeAdd(firstAudioTimeStamp, firstVideoTimestamp);
-        [self.assetWriter startSessionAtSourceTime:startTime];
-        NSLog(@"BEGIN writing: %f", CMTimeGetSeconds(startTime));
     }
     
     if(assetWriterVideoInput.readyForMoreMediaData == NO) {
@@ -418,15 +314,11 @@
     // read the pixels from screen or fbo.
     // this is a much slower fallback alternative.
     //----------------------------------------------------------
-    //NSLog(@"1 appending pixels...");
     
     if(pixelBuffer == NULL) {
         CVPixelBufferPoolRef pixelBufferPool = [self.assetWriterInputPixelBufferAdaptor pixelBufferPool];
         CVReturn status = CVPixelBufferPoolCreatePixelBuffer(NULL, pixelBufferPool, &pixelBuffer);
         if((pixelBuffer == NULL) || (status != kCVReturnSuccess)) {
-            // https://stackoverflow.com/questions/5810984/avassetwriterinputpixelbufferadaptor-returns-null-pixel-buffer-pool
-            //NSLog(@"error %d, %d", status, (pixelBuffer == NULL)); //kCVReturnInvalidArgument
-            //NSLog(@"path: %@", self.assetWriter.outputURL);
             return NO;
         } else {
             CVPixelBufferLockBaseAddress(pixelBuffer, 0);
@@ -435,18 +327,11 @@
         }
     }
     
-    
     //----------------------------------------------------------
     dispatch_sync(videoWriterQueue, ^{
         
-        // need to use the microphone offset time as starting point
-        CMTime time = CMTimeAdd(firstAudioTimeStamp, frameTime);
-        
-        //NSLog(@"adding frame: %f", CMTimeGetSeconds(time));
-        
-        //NSLog(@"appending pixels...");
         BOOL bOk = [self.assetWriterInputPixelBufferAdaptor appendPixelBuffer:pixelBuffer
-                                                         withPresentationTime:time];
+                                                         withPresentationTime:frameTime];
         if(bOk == NO) {
             if([self.delegate respondsToSelector:@selector(videoWriterLog:)]) {
                 NSString * errorDesc = self.assetWriter.error.description;
@@ -466,47 +351,6 @@
     
     return YES;
 }
-
-#pragma mark audio capture
-
-- (void)captureOutput:(AVCaptureOutput *)captureOutput didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer fromConnection:(AVCaptureConnection *)connection {
-    
-    if(bWriting == NO) {
-        return;
-    }
-    if (captureOutput == self.captureOutputAudio) {
-        if (CMTIME_IS_INVALID(firstAudioTimeStamp)) {
-            firstAudioTimeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
-            //NSLog(@"first audio time stamp: %f", CMTimeGetSeconds(firstAudioTimeStamp));
-            //NSLog(@"first start time stamp: %f", CMTimeGetSeconds(startTime));
-        }
-        
-        if ([self.assetWriterAudioInput isReadyForMoreMediaData]) {
-            //CMTime bufferTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
-            //NSLog(@"adding audio buffer... %f", CMTimeGetSeconds(bufferTime));
-            //NSLog(@"frame time: %f", CMTimeGetSeconds(previousFrameTime));
-            [self.assetWriterAudioInput appendSampleBuffer:sampleBuffer];
-        }
-    }
-}
-
-// old capture...
-/*
- - (void)captureOutput:(AVCaptureOutput *)captureOutput_
- didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
- fromConnection:(AVCaptureConnection *)connection {
- 
- if(bWriting == NO) {
- return;
- }
- if(CMSampleBufferDataIsReady(sampleBuffer) == false) {
- NSLog( @"sample buffer is not ready. Skipping sample" );
- return;
- }
- if(self.captureOutputAudio == captureOutput_){ //double check to make sure this is actually audio
- [self addAudio:sampleBuffer]; // this is where the audio gets sent to be recorded
- }
- }*/
 
 - (BOOL)addAudio:(CMSampleBufferRef)audioBuffer {
     
